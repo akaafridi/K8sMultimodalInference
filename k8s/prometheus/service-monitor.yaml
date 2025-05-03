@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: model-inference-service-monitor
+  labels:
+    app: model-inference-service
+spec:
+  selector:
+    matchLabels:
+      app: model-inference-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+  namespaceSelector:
+    matchNames:
+    - default

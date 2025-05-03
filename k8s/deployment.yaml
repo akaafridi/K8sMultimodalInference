@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-inference-service
+  labels:
+    app: model-inference-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-inference-service
+  template:
+    metadata:
+      labels:
+        app: model-inference-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: model-inference-container
+        image: ${DOCKER_REGISTRY}/model-inference-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "8Gi"
+            cpu: "2"
+          requests:
+            memory: "4Gi"
+            cpu: "1"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 120
+          timeoutSeconds: 5
+          periodSeconds: 10
+        env:
+        - name: PORT
+          value: "5000"
+        - name: MODEL_NAME
+          value: "Salesforce/blip-image-captioning-base"
+        - name: GUNICORN_WORKERS
+          value: "1"
+      nodeSelector:
+        accelerator: nvidia-tesla-t4

@@ -1,0 +1,157 @@
+1. Add Observability
+Instrument your Flask app
+
+Install the Prometheus client:
+
+bash
+Copy
+Edit
+pip install prometheus_client
+In model_server.py, add:
+
+python
+Copy
+Edit
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+# Metrics
+INFER_COUNT = Counter("infer_requests_total", "Total inference requests")
+INFER_LATENCY = Histogram("infer_latency_seconds", "Inference latency")
+
+@app.route("/metrics")
+def metrics():
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+@app.before_request
+def before():
+    request.start_time = time.time()
+
+@app.after_request
+def after(response):
+    if request.endpoint == "infer":
+        INFER_COUNT.inc()
+        INFER_LATENCY.observe(time.time() - request.start_time)
+    return response
+Annotate your Deployment so Prometheus can scrape it. In k8s/deployment.yaml under spec.template.metadata:
+
+yaml
+Copy
+Edit
+annotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port:   "5000"
+  prometheus.io/path:   "/metrics"
+Deploy a Prometheus + Grafana stack
+
+If you’re on a local cluster (kind/Minikube), install kube‑prometheus (or the Prometheus Operator) via:
+
+bash
+Copy
+Edit
+kubectl apply -f https://github.com/prometheus-operator/kube-prometheus/releases/latest/download/kube-prometheus.yaml
+Wait for all pods in monitoring/ (or prometheus/) namespaces to become Running.
+
+Build dashboards & alerts
+
+In Grafana, import a basic template for Flask apps or create panels for:
+
+infer_requests_total rate
+
+infer_latency_seconds (histogram percentiles)
+
+GPU node metrics (e.g., nvidia_smi_utilization_gpu)
+
+Define an alert rule: e.g.
+
+yaml
+Copy
+Edit
+- alert: HighInferLatency
+  expr: histogram_quantile(0.95, sum(rate(infer_latency_seconds_bucket[5m])) by (le)) > 1
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "P95 inference latency > 1s"
+2. Swap in the Real BLIP Model
+Update requirements.txt
+
+text
+Copy
+Edit
+flask
+torch
+transformers
+pillow
+prometheus_client
+Replace the mock in /infer with code like:
+
+python
+Copy
+Edit
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import torch
+
+# load once
+processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+model     = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to("cuda")
+
+@app.route("/infer", methods=["POST"])
+def infer():
+    INFER_COUNT.inc()
+    start = time.time()
+
+    payload = request.json
+    image   = decode_image(payload["image"])  # implement decode_image
+
+    inputs  = processor(image, return_tensors="pt").to("cuda")
+    out     = model.generate(**inputs)
+    caption = processor.decode(out[0], skip_special_tokens=True)
+
+    INFER_LATENCY.observe(time.time() - start)
+    return jsonify({
+      "predictions":   caption,
+      "model_version": model.config._name_or_path
+    })
+Test locally with Docker (or your GPU‑enabled dev environment) to verify you get real captions.
+
+3. End‑to‑End Testing & Demo
+Build & push your updated image
+
+bash
+Copy
+Edit
+docker build -t yourhub/blip-server:latest .
+docker push  yourhub/blip-server:latest
+Update k8s/deployment.yaml to use the new tag, then:
+
+bash
+Copy
+Edit
+kubectl apply -f k8s/
+Generate load (e.g. via hey or wrk) against /infer and watch:
+
+Pods scale up/down per your HPA
+
+Metrics populate in Grafana
+
+Alerts fire if thresholds breach
+
+Capture a short demo (GIF or video) of:
+
+Pods spinning up under load
+
+Grafana dashboards updating
+
+A successful image caption response
+
+4. Commit & Document
+README.md
+
+Add a Monitoring section with instructions to view Grafana dashboards and alerts.
+
+Include example /metrics and Grafana import JSON.
+
+GitHub Actions
+
+Extend your CI workflow to fail if your Prometheus scrape endpoints return non‑200.

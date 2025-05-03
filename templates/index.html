@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BLIP Image Captioning</title>
+  <link 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" 
+    rel="stylesheet">
+  <style>
+    .drop-zone {
+      border: 2px dashed #0d6efd;
+      border-radius: 5px;
+      padding: 25px;
+      text-align: center;
+      transition: all 0.3s ease;
+      background-color: rgba(13, 110, 253, 0.05);
+    }
+    .drop-zone.dragover {
+      background-color: rgba(13, 110, 253, 0.15);
+      border-color: #0a58ca;
+    }
+    .drop-zone-prompt {
+      font-size: 1.1rem;
+      color: #666;
+      margin-bottom: 15px;
+    }
+    .drop-zone-input {
+      display: none;
+    }
+    .preview-container {
+      max-width: 300px;
+      margin: 0 auto;
+      display: none;
+    }
+    .preview-image {
+      width: 100%;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 15px 0;
+    }
+    .tab-content {
+      padding-top: 20px;
+    }
+    .nav-tabs {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body class="p-5">
+  <div class="container">
+    <h1 class="mb-4 text-center">BLIP Image Captioning</h1>
+    
+    <ul class="nav nav-tabs" id="myTab" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-tab-pane" type="button" role="tab" aria-controls="upload-tab-pane" aria-selected="true">File Upload</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="url-tab" data-bs-toggle="tab" data-bs-target="#url-tab-pane" type="button" role="tab" aria-controls="url-tab-pane" aria-selected="false">Image URL</button>
+      </li>
+    </ul>
+    
+    <div class="tab-content" id="myTabContent">
+      <!-- File Upload Tab -->
+      <div class="tab-pane fade show active" id="upload-tab-pane" role="tabpanel" aria-labelledby="upload-tab" tabindex="0">
+        <div class="drop-zone mb-3" id="dropZone">
+          <div class="drop-zone-prompt">
+            <i class="bi bi-cloud-arrow-up-fill"></i>
+            <p>Drag & drop an image file here or click to browse</p>
+          </div>
+          <input type="file" class="drop-zone-input" id="fileInput" accept="image/*">
+        </div>
+        <div class="preview-container mt-3 mb-3" id="previewContainer">
+          <img src="" alt="Preview" class="preview-image" id="previewImage">
+        </div>
+        <button type="button" class="btn btn-primary w-100" id="uploadGenerateBtn">Generate Caption</button>
+      </div>
+      
+      <!-- URL Tab -->
+      <div class="tab-pane fade" id="url-tab-pane" role="tabpanel" aria-labelledby="url-tab" tabindex="0">
+        <div class="mb-3">
+          <label for="imageUrlInput" class="form-label">Image URL</label>
+          <input type="text" class="form-control" id="imageUrlInput" placeholder="https://example.com/image.jpg">
+        </div>
+        <button type="button" class="btn btn-primary w-100" id="urlGenerateBtn">Generate Caption</button>
+      </div>
+    </div>
+    
+    <div class="loading mt-4" id="loading">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-2">Generating caption...</p>
+    </div>
+    
+    <div class="card mt-4" id="resultCard" style="display: none;">
+      <div class="card-header">
+        <h5 class="card-title mb-0">Results</h5>
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-4 text-center">
+            <img src="" alt="Result" id="resultImage" class="img-fluid rounded mb-3" style="max-height: 200px;">
+          </div>
+          <div class="col-md-8">
+            <h5>Caption:</h5>
+            <p id="captionText" class="lead"></p>
+            <small class="text-muted">Model: <span id="modelVersion"></span></small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // DOM elements
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('fileInput');
+      const previewContainer = document.getElementById('previewContainer');
+      const previewImage = document.getElementById('previewImage');
+      const imageUrlInput = document.getElementById('imageUrlInput');
+      const uploadGenerateBtn = document.getElementById('uploadGenerateBtn');
+      const urlGenerateBtn = document.getElementById('urlGenerateBtn');
+      const loading = document.getElementById('loading');
+      const resultCard = document.getElementById('resultCard');
+      const resultImage = document.getElementById('resultImage');
+      const captionText = document.getElementById('captionText');
+      const modelVersion = document.getElementById('modelVersion');
+      
+      // File drop zone handler
+      ['dragover', 'dragenter'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+          e.preventDefault();
+          dropZone.classList.add('dragover');
+        });
+      });
+      
+      ['dragleave', 'dragend', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+          e.preventDefault();
+          dropZone.classList.remove('dragover');
+        });
+      });
+      
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) {
+          fileInput.files = e.dataTransfer.files;
+          updateFilePreview();
+        }
+      });
+      
+      dropZone.addEventListener('click', () => {
+        fileInput.click();
+      });
+      
+      fileInput.addEventListener('change', updateFilePreview);
+      
+      function updateFilePreview() {
+        const file = fileInput.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = e => {
+            previewImage.src = e.target.result;
+            previewContainer.style.display = 'block';
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+      
+      // Generate caption from file upload
+      uploadGenerateBtn.addEventListener('click', async () => {
+        if (!fileInput.files.length) {
+          alert('Please select an image file first.');
+          return;
+        }
+        
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        
+        loading.style.display = 'block';
+        resultCard.style.display = 'none';
+        
+        reader.onload = async e => {
+          const base64Image = e.target.result;
+          await generateCaption(base64Image);
+        };
+        
+        reader.readAsDataURL(file);
+      });
+      
+      // Generate caption from URL
+      urlGenerateBtn.addEventListener('click', async () => {
+        const imageUrl = imageUrlInput.value.trim();
+        if (!imageUrl) {
+          alert('Please enter an image URL.');
+          return;
+        }
+        
+        loading.style.display = 'block';
+        resultCard.style.display = 'none';
+        
+        await generateCaption(imageUrl);
+      });
+      
+      // Generate caption from either source
+      async function generateCaption(imageData) {
+        try {
+          const response = await fetch('/infer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageData })
+          });
+          
+          const data = await response.json();
+          
+          loading.style.display = 'none';
+          
+          if (data.error) {
+            alert('Error: ' + data.error);
+            return;
+          }
+          
+          // Display results
+          resultImage.src = imageData.startsWith('data:') ? imageData : imageData;
+          captionText.textContent = data.predictions;
+          modelVersion.textContent = data.model_version;
+          resultCard.style.display = 'block';
+          
+        } catch (error) {
+          loading.style.display = 'none';
+          alert('Error: Failed to communicate with the server.');
+          console.error(error);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
